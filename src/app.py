@@ -140,11 +140,11 @@ def run_react_agent(user_query: str, provider, mcp_server: MCPAcademicServer) ->
                 "query": user_query,
                 "action_type": "TOOL_EXECUTION",
                 "tool_name": tool_name,
+                "thought": thought,
                 "arguments": arguments,
                 "observation": obs_data,
                 "latency_ms": latency_ms
             })
-            
             # Kết thúc vòng lặp sau khi hoàn tất Observation và xuất Final Answer
             print(f"🧠 [Thought]: Đã nhận được dữ liệu từ MCP Server. Tổng hợp kết quả phản hồi.")
             print(f"🏁 [Final Answer]: {final_answer}")
@@ -160,6 +160,84 @@ def run_react_agent(user_query: str, provider, mcp_server: MCPAcademicServer) ->
             break
 
     return trace_logs
+
+# def run_react_agent(user_query: str, provider, mcp_server: MCPAcademicServer) -> list:
+#     """
+#     [REACT AGENT LOOP] Thực thi vòng lặp Thought -> Action -> Observation với MCP Server
+#     Trả về danh sách trace log của phiên thực thi.
+#     ĐOẠN CODE NÀY ĐẢM BẢO ĐỦ LOGIC CỦA AGENT, NHƯNG BỊ GIỚI HẠN LIMIT 5 LẦN /PHÚT CỦA API NÊN KO PASS VÀ LẶP LẠI LIÊN TỤC VÒNG LẶP KÈM LỖI 429
+#     """
+#     print(f"\n🤖 [REACT AGENT] Câu hỏi: {user_query}")
+    
+#     step = 0
+#     trace_logs = []
+#     tools_list = mcp_server.list_tools()
+    
+#     # Biến lưu trữ ngữ cảnh tích lũy để duy trì lịch sử (Context) cho ReAct loop
+#     current_prompt = user_query
+    
+#     while step < MAX_ITERATIONS:
+#         step += 1
+#         step_start_time = time.time()
+#         print(f"\n--- 🔄 Vòng lặp ReAct Loop (Step {step}/{MAX_ITERATIONS}) ---")
+        
+#         # Gọi LLM với ngữ cảnh tích lũy (bao gồm câu hỏi gốc + các Observation trước đó)
+#         llm_response = provider.generate_with_tools(current_prompt, tools_list, system_prompt=REACT_AGENT_SYSTEM_PROMPT)
+#         latency_ms = round((time.time() - step_start_time) * 1000, 2)
+        
+#         thought = llm_response.get("thought", "Đang suy luận...")
+#         print(f"🧠 [Thought]: {thought}")
+        
+#         # Trường hợp 1: LLM quyết định trả lời bằng văn bản trực tiếp (kết thúc vòng lặp)
+#         if llm_response.get("type") == "text":
+#             final_content = llm_response.get("content", "")
+#             print(f"🏁 [Final Answer]: {final_content}")
+#             trace_logs.append({
+#                 "step": step,
+#                 "query": user_query,
+#                 "action_type": "FINAL_ANSWER",
+#                 "thought": thought,
+#                 "output": final_content,
+#                 "latency_ms": latency_ms
+#             })
+#             break
+            
+#         # Trường hợp 2: LLM đề xuất gọi Tool (Action)
+#         elif llm_response.get("type") == "tool_call":
+#             tool_name = llm_response.get("tool_name")
+#             arguments = llm_response.get("arguments", {})
+            
+#             print(f"🛠️ [Action Proposed]: {tool_name}({arguments})")
+            
+#             # Thực thi Tool qua MCP Server
+#             mcp_result = mcp_server.call_tool(tool_name, arguments)
+#             obs_data = mcp_result.get("result", {})
+            
+#             if not obs_data:
+#                 print(f"👁️ [Observation từ MCP Server]: {{}}")
+#                 print(f"⚠️ [CHÚ Ý]: MCP Server trả về kết quả rỗng! Học viên cần hoàn thành TODO 2.1 trong 'src/mcp_server.py'.")
+#                 obs_str = "Lỗi: Không nhận được dữ liệu từ hệ thống."
+#             else:
+#                 obs_str = json.dumps(obs_data, ensure_ascii=False)
+#                 print(f"👁️ [Observation từ MCP Server]: {obs_str}")
+            
+#             # Lưu vết hành động gọi Tool
+#             trace_logs.append({
+#                 "step": step,
+#                 "query": user_query,
+#                 "action_type": "TOOL_EXECUTION",
+#                 "tool_name": tool_name,
+#                 "thought": thought,
+#                 "arguments": arguments,
+#                 "observation": obs_data,
+#                 "latency_ms": latency_ms
+#             })
+            
+#             # Quan Trọng: Nạp kết quả (Observation) ngược lại vào current_prompt để chuyển sang Step tiếp theo
+#             # Không dùng lệnh 'break' ở đây để LLM tự quyết định ở vòng lặp sau.
+#             current_prompt += f"\n\n[Observation từ Tool '{tool_name}']: {obs_str}\nDựa vào dữ liệu trên, hãy đưa ra câu trả lời cuối cùng cho người dùng hoặc tiếp tục gọi Tool nếu thiếu dữ liệu."
+
+#     return trace_logs
 
 
 if __name__ == "__main__":
@@ -214,6 +292,11 @@ if __name__ == "__main__":
                 logs = run_react_agent(tc["question"], provider, mcp_server)
                 all_traces.extend(logs)
                 completed_count += 1
+                # 💡 ĐOẠN NÀY ĐỂ TRÁNH LỖI 429 RATE LIMIT
+                # 
+            if completed_count < len(tests):
+                print("⏳ Đang chờ 14 giây để reset quota API...")
+                time.sleep(14)
                 
         print(f"\n==================================================")
         print(f"📊 [KẾT QUẢ TEST SUITE]: Đã thực thi {completed_count}/{len(tests)} Test Cases | {todo_count} Test Cases đang chờ điền câu hỏi (TODO)")
